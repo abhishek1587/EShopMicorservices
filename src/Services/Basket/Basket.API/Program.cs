@@ -1,13 +1,16 @@
-
 using BuildingBlocks.Exceptions.Handler;
+using Discount.gRPC;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Caching.Distributed;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//Add services to Container
+
+#region AddServicesToContainer_BeforeBuildOperation
 var assembly = typeof(Program).Assembly;
+
+#region ApplicationServices
 //Add Carter
 builder.Services.AddCarter();
 //add Mapster
@@ -25,8 +28,10 @@ builder.Services.AddMediatR(config =>
     //add logging behaviour in request pipelin
     config.AddOpenBehavior(typeof(LoggingBehavior<,>));
 });
+#endregion
 
 
+#region DataServices
 //add Marten service for interactin with postgres document DB
 builder.Services.AddMarten(
     opts =>
@@ -53,19 +58,44 @@ builder.Services.AddStackExchangeRedisCache(options =>
     options.Configuration = builder.Configuration.GetConnectionString("Redis")!;
     //options.InstanceName = "Basket";
 });
+#endregion
 
+#region GrpcServices
+builder.Services.AddGrpcClient<DiscountProtoService.DiscountProtoServiceClient>(options =>
+{
+    options.Address = new Uri(builder.Configuration["GrpcSettings:DiscountUrl"]!);
+})
+
+//ByPass the SSL Certificate 
+.ConfigurePrimaryHttpMessageHandler( () =>
+{
+    var handler = new HttpClientHandler
+    {
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    };
+    return handler;
+});
+
+#endregion   
+
+
+#region Cross-Cutting service
 builder.Services.AddExceptionHandler<CustomExceptionHandler>();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(builder.Configuration.GetConnectionString("Database")!)
     .AddRedis(builder.Configuration.GetConnectionString("Redis")!);
 
+#endregion
+
+
+#endregion
+
+
 var app = builder.Build();
 
 
-
-
-//Configure the HTTP Request pipeline.
+#region ConfigureTheHTTPRequestPipeline.
 
 //Configure the carter
 app.MapCarter();
@@ -75,3 +105,5 @@ app.UseHealthChecks("/health", new HealthCheckOptions
     ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
 });
 app.Run();
+
+#endregion
